@@ -50,4 +50,5 @@ public class AuthController {
         authenticationService.createAdmin(createAdminRequest);
         return new ResponseEntity<>(HttpStatus.CREATED);
     }
+
 }

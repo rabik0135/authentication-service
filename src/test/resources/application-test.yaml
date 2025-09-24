@@ -1,0 +1,5 @@
+app:
+  jwt:
+    secret: M3BIWW9iS2kzV1dhVkNDcFpJTGxWblRaaEYwcTdIeXZaUjBXdERPOUtUSmthVmQ3REgK
+    tokenExpiration: 300000
+    refreshTokenExpiration: 1800000

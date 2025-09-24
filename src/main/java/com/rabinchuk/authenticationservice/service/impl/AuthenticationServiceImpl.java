@@ -1,4 +1,4 @@
-package com.rabinchuk.authenticationservice.service;
+package com.rabinchuk.authenticationservice.service.impl;
 
 import com.rabinchuk.authenticationservice.dto.CreateAdminRequest;
 import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponse;
@@ -7,13 +7,15 @@ import com.rabinchuk.authenticationservice.dto.SignInRequest;
 import com.rabinchuk.authenticationservice.dto.SignUpRequest;
 import com.rabinchuk.authenticationservice.dto.UserInfo;
 import com.rabinchuk.authenticationservice.dto.ValidateTokenRequest;
+import com.rabinchuk.authenticationservice.exception.RefreshTokenException;
 import com.rabinchuk.authenticationservice.exception.UserAlreadyExistsException;
+import com.rabinchuk.authenticationservice.model.RefreshToken;
 import com.rabinchuk.authenticationservice.model.RoleType;
 import com.rabinchuk.authenticationservice.model.UserCredentials;
 import com.rabinchuk.authenticationservice.repository.UserCredentialsRepository;
 import com.rabinchuk.authenticationservice.security.AppUserDetails;
 import com.rabinchuk.authenticationservice.security.JwtTokenProvider;
-
+import com.rabinchuk.authenticationservice.service.AuthenticationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -32,6 +34,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
     private final UserCredentialsRepository userCredentialsRepository;
     private final PasswordEncoder encoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final RefreshTokenServiceImpl refreshTokenServiceImpl;
 
     @Override
     public JwtAuthenticationResponse signIn(SignInRequest signInRequest) {
@@ -50,9 +53,9 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
         AppUserDetails appUserDetails = new AppUserDetails(userCredentials);
         String accessToken = jwtTokenProvider.generateAccessToken(appUserDetails);
-        String refreshToken = jwtTokenProvider.generateRefreshToken(appUserDetails);
+        RefreshToken refreshToken = refreshTokenServiceImpl.createRefreshToken(signInRequest.email());
 
-        return new JwtAuthenticationResponse(accessToken, refreshToken);
+        return new JwtAuthenticationResponse(accessToken, refreshToken.getToken());
     }
 
     @Override
@@ -70,20 +73,18 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
     @Override
     public JwtAuthenticationResponse refreshToken(RefreshTokenRequest refreshTokenRequest) {
-        if (!jwtTokenProvider.validateToken(refreshTokenRequest.refreshToken())) {
-            throw new BadCredentialsException("Invalid refresh token");
-        }
+        return refreshTokenServiceImpl.findByToken(refreshTokenRequest.refreshToken())
+                .map(refreshTokenServiceImpl::verifyExpiration)
+                .map(RefreshToken::getUserCredentials)
+                .map(userCredentials -> {
+                    AppUserDetails appUserDetails = new AppUserDetails(userCredentials);
+                    String newAccessToken = jwtTokenProvider.generateAccessToken(appUserDetails);
 
-        String email = jwtTokenProvider.getEmailFromToken(refreshTokenRequest.refreshToken());
-        UserCredentials userCredentials = userCredentialsRepository.findByEmail(email).orElseThrow(
-                () -> new UsernameNotFoundException("User not found with email: " + email)
-        );
-
-        AppUserDetails appUserDetails = new AppUserDetails(userCredentials);
-        String newAccessToken = jwtTokenProvider.generateAccessToken(appUserDetails);
-        String newRefreshToken = jwtTokenProvider.generateRefreshToken(appUserDetails);
-
-        return new JwtAuthenticationResponse(newAccessToken, newRefreshToken);
+                    return new JwtAuthenticationResponse(newAccessToken, refreshTokenRequest.refreshToken());
+                })
+                .orElseThrow(
+                        () -> new RefreshTokenException(refreshTokenRequest.refreshToken(), "Refresh token is not in database or expired")
+                );
     }
 
     @Override
@@ -92,10 +93,10 @@ public class AuthenticationServiceImpl implements AuthenticationService {
             throw new BadCredentialsException("Invalid token");
         }
 
-        String login = jwtTokenProvider.getEmailFromToken(validateTokenRequest.token());
+        String email = jwtTokenProvider.getEmailFromToken(validateTokenRequest.token());
         Set<RoleType> roles = jwtTokenProvider.getRolesFromToken(validateTokenRequest.token());
 
-        return new UserInfo(login, roles);
+        return new UserInfo(email, roles);
     }
 
     @Override
@@ -112,6 +113,5 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
         userCredentialsRepository.save(adminCredentials);
     }
-
 
 }

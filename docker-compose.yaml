@@ -1,0 +1,26 @@
+networks:
+  default:
+    name: microservices-network
+    external: true
+
+services:
+  postgres-auth-db:
+    image: postgres:17
+    container_name: "postgres-auth-db"
+    restart: "no"
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USERNAME}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: auth_db
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+volumes:
+  postgres_auth_data:

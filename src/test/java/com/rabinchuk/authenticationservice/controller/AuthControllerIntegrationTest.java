@@ -1,36 +1,54 @@
 package com.rabinchuk.authenticationservice.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.rabinchuk.authenticationservice.dto.CreateAdminRequest;
 import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponse;
 import com.rabinchuk.authenticationservice.dto.RefreshTokenRequest;
 import com.rabinchuk.authenticationservice.dto.SignInRequest;
 import com.rabinchuk.authenticationservice.dto.SignUpRequest;
-import com.rabinchuk.authenticationservice.dto.UserInfo;
 import com.rabinchuk.authenticationservice.dto.ValidateTokenRequest;
+import com.rabinchuk.authenticationservice.model.RoleType;
 import com.rabinchuk.authenticationservice.model.UserCredentials;
 import com.rabinchuk.authenticationservice.repository.RefreshTokenRepository;
 import com.rabinchuk.authenticationservice.repository.UserCredentialsRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.LocalDate;
 import java.util.Optional;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static java.lang.Thread.sleep;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 public class AuthControllerIntegrationTest {
 
@@ -38,8 +56,22 @@ public class AuthControllerIntegrationTest {
     @ServiceConnection
     private static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17");
 
+    @RegisterExtension
+    protected static WireMockExtension wireMock = WireMockExtension.newInstance()
+            .options(wireMockConfig().dynamicPort())
+            .build();
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("user-service.url", wireMock::baseUrl);
+        registry.add("INTERNAL_KEY", () -> "test-key");
+    }
+
     @Autowired
-    private TestRestTemplate restTemplate;
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private UserCredentialsRepository userCredentialsRepository;
@@ -51,116 +83,170 @@ public class AuthControllerIntegrationTest {
     void tearDown() {
         refreshTokenRepository.deleteAll();
         userCredentialsRepository.deleteAll();
+        wireMock.resetAll();
     }
 
     @Test
     @DisplayName("Sign up successful")
-    public void signUp_whenValidRequest_shouldCreateUserAndReturn201() {
-        SignUpRequest request = new SignUpRequest("testuser@example.com", "password123");
+    public void signUp_whenValidRequest_shouldCreateUserAndReturn201() throws Exception {
+        stubUserClient();
 
-        ResponseEntity<Void> response = restTemplate.postForEntity("/api/auth/signUp", request, Void.class);
+        mockMvc.perform(post("/api/auth/signUp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createSignUpRequest())))
+                .andExpect(status().isCreated());
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(userCredentialsRepository.findByEmail("testuser@example.com")).isPresent();
+        assertThat(userCredentialsRepository.findByEmail("test.example@example.com")).isPresent();
+        wireMock.verify(postRequestedFor(urlPathEqualTo("/api/users")));
     }
 
     @Test
     @DisplayName("Sign up with invalid email")
-    public void signUp_whenEmailAlreadyExists_shouldReturn409() {
-        SignUpRequest initialRequest = new SignUpRequest("existinguser@example.com", "password123");
-        restTemplate.postForEntity("/api/auth/signUp", initialRequest, Void.class);
+    public void signUp_whenEmailAlreadyExists_shouldReturn409() throws Exception {
+        stubUserClient();
+        mockMvc.perform(post("/api/auth/signUp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createSignUpRequest())))
+                .andExpect(status().isCreated());
 
-        SignUpRequest duplicateRequest = new SignUpRequest("existinguser@example.com", "anotherPassword");
-
-        ResponseEntity<Object> response = restTemplate.postForEntity("/api/auth/signUp", duplicateRequest, Object.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        mockMvc.perform(post("/api/auth/signUp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createSignUpRequest())))
+                .andExpect(status().isConflict());
     }
+
 
     @Test
     @DisplayName("Sign in successful")
-    public void signIn_whenCredentialsAreValid_shouldReturnTokensAnd200() {
-        SignUpRequest signUpRequest = new SignUpRequest("signinuser@example.com", "password123");
-        restTemplate.postForEntity("/api/auth/signUp", signUpRequest, Void.class);
+    public void signIn_whenCredentialsAreValid_shouldReturnTokensAnd200() throws Exception {
+        stubUserClient();
+        mockMvc.perform(post("/api/auth/signUp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createSignUpRequest())))
+                .andExpect(status().isCreated());
 
-        SignInRequest signInRequest = new SignInRequest("signinuser@example.com", "password123");
+        SignInRequest signInRequest = new SignInRequest("test.example@example.com", "password123");
 
-        ResponseEntity<JwtAuthenticationResponse> response = restTemplate.postForEntity("/api/auth/signIn", signInRequest, JwtAuthenticationResponse.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().accessToken()).isNotBlank();
-        assertThat(response.getBody().refreshToken()).isNotBlank();
+        mockMvc.perform(post("/api/auth/signIn")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(signInRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isString())
+                .andExpect(jsonPath("$.refreshToken").isString());
     }
+
 
     @Test
     @DisplayName("Sign in with invalid password")
-    public void signIn_whenPasswordIsInvalid_shouldReturn401() {
-        SignUpRequest signUpRequest = new SignUpRequest("badpass@example.com", "password123");
-        restTemplate.postForEntity("/api/auth/signUp", signUpRequest, Void.class);
+    public void signIn_whenPasswordIsInvalid_shouldReturn401() throws Exception {
+        stubUserClient();
+        mockMvc.perform(post("/api/auth/signUp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createSignUpRequest())))
+                .andExpect(status().isCreated());
 
-        SignInRequest signInRequest = new SignInRequest("badpass@example.com", "wrong-password");
+        SignInRequest signInRequest = new SignInRequest("test.example@example.com", "wrong-password");
 
-        ResponseEntity<Object> response = restTemplate.postForEntity("/api/auth/signIn", signInRequest, Object.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        mockMvc.perform(post("/api/auth/signIn")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(signInRequest)))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
     @DisplayName("Refresh token successful")
-    public void refreshToken_whenTokenIsValid_shouldReturnNewAccessToken() throws InterruptedException {
-        SignUpRequest signUpRequest = new SignUpRequest("refreshuser@example.com", "password123");
-        restTemplate.postForEntity("/api/auth/signUp", signUpRequest, Void.class);
-
-        SignInRequest signInRequest = new SignInRequest("refreshuser@example.com", "password123");
-        ResponseEntity<JwtAuthenticationResponse> signInResponse = restTemplate.postForEntity("/api/auth/signIn", signInRequest, JwtAuthenticationResponse.class);
-        String refreshToken = signInResponse.getBody().refreshToken();
-        String oldAccessToken = signInResponse.getBody().accessToken();
+    public void refreshToken_whenTokenIsValid_shouldReturnNewAccessToken() throws Exception {
+        JwtAuthenticationResponse signInResponse = signIpAndSignIn();
+        String refreshToken = signInResponse.refreshToken();
+        String oldAccessToken = signInResponse.accessToken();
 
         sleep(1000);
 
         RefreshTokenRequest refreshRequest = new RefreshTokenRequest(refreshToken);
 
-        ResponseEntity<JwtAuthenticationResponse> refreshResponse = restTemplate.postForEntity("/api/auth/refresh", refreshRequest, JwtAuthenticationResponse.class);
-
-        assertThat(refreshResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(refreshResponse.getBody()).isNotNull();
-        assertThat(refreshResponse.getBody().refreshToken()).isEqualTo(refreshToken);
-        assertThat(refreshResponse.getBody().accessToken()).isNotBlank().isNotEqualTo(oldAccessToken);
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshToken").value(refreshToken))
+                .andExpect(jsonPath("$.accessToken").isString())
+                .andExpect(jsonPath("$.accessToken").value(not(equalTo(oldAccessToken))));
     }
+
 
     @Test
     @DisplayName("Validate token successful")
-    public void validateToken_whenTokenIsValid_shouldReturnUserInfoAnd200() {
-        SignUpRequest signUpRequest = new SignUpRequest("validateuser@example.com", "password123");
-        restTemplate.postForEntity("/api/auth/signUp", signUpRequest, Void.class);
+    public void validateToken_whenTokenIsValid_shouldReturnUserInfoAnd200() throws Exception {
+        JwtAuthenticationResponse signInResponse = signIpAndSignIn();
 
-        SignInRequest signInRequest = new SignInRequest("validateuser@example.com", "password123");
-        ResponseEntity<JwtAuthenticationResponse> signInResponse = restTemplate.postForEntity("/api/auth/signIn", signInRequest, JwtAuthenticationResponse.class);
+        ValidateTokenRequest validateRequest = new ValidateTokenRequest(signInResponse.accessToken());
 
-        String accessToken = signInResponse.getBody().accessToken();
-        ValidateTokenRequest validateRequest = new ValidateTokenRequest(accessToken);
-
-        ResponseEntity<UserInfo> response = restTemplate.postForEntity("/api/auth/validate", validateRequest, UserInfo.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().email()).isEqualTo("validateuser@example.com");
-        assertThat(response.getBody().roles()).contains(com.rabinchuk.authenticationservice.model.RoleType.ROLE_USER);
+        mockMvc.perform(post("/api/auth/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validateRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("test.example@example.com"))
+                .andExpect(jsonPath("$.roles[0]").value(RoleType.ROLE_USER.name()));
     }
 
     @Test
     @DisplayName("Create admin successful")
-    public void createAdmin_whenRequestIsValid_shouldCreateAdminUserAndReturn201() {
+    public void createAdmin_whenRequestIsValid_shouldCreateAdminUserAndReturn201() throws Exception {
         CreateAdminRequest adminRequest = new CreateAdminRequest("theadmin@example.com", "supersecretpass");
 
-        ResponseEntity<Void> response = restTemplate.postForEntity("/api/auth/create-admin", adminRequest, Void.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        mockMvc.perform(post("/api/auth/create-admin")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(adminRequest)))
+                .andExpect(status().isCreated());
 
         Optional<UserCredentials> savedAdmin = userCredentialsRepository.findByEmail("theadmin@example.com");
         assertThat(savedAdmin).isPresent();
         assertThat(savedAdmin.get().getRoles()).contains(com.rabinchuk.authenticationservice.model.RoleType.ROLE_ADMIN);
+    }
+
+    private void stubUserClient() {
+        wireMock.stubFor(WireMock.post(urlPathEqualTo("/api/users"))
+                .willReturn(aResponse()
+                        .withStatus(201)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                {
+                                  "id": "1",
+                                  "name": "name",
+                                  "surname": "surname",
+                                  "birthDate": "1980-01-01",
+                                  "email": "test.example@example.com"
+                                }
+                                """
+                        )
+                )
+        );
+    }
+
+    private SignUpRequest createSignUpRequest() {
+        return SignUpRequest.builder()
+                .email("test.example@example.com")
+                .password("password123")
+                .name("name")
+                .surname("surname")
+                .birthDate(LocalDate.of(1980, 1, 1))
+                .build();
+    }
+
+    private JwtAuthenticationResponse signIpAndSignIn() throws Exception {
+        stubUserClient();
+        mockMvc.perform(post("/api/auth/signUp")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createSignUpRequest())))
+                .andExpect(status().isCreated());
+
+        SignInRequest signInRequest = new SignInRequest("test.example@example.com", "password123");
+        MvcResult signInResult = mockMvc.perform(post("/api/auth/signIn")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(signInRequest)))
+                .andReturn();
+
+        return objectMapper.readValue(signInResult.getResponse().getContentAsString(), JwtAuthenticationResponse.class);
     }
 
 }

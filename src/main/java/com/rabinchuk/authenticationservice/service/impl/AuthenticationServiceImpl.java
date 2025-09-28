@@ -1,11 +1,15 @@
 package com.rabinchuk.authenticationservice.service.impl;
 
+import com.rabinchuk.authenticationservice.client.UserClient;
 import com.rabinchuk.authenticationservice.dto.CreateAdminRequest;
 import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponse;
 import com.rabinchuk.authenticationservice.dto.RefreshTokenRequest;
 import com.rabinchuk.authenticationservice.dto.SignInRequest;
+import com.rabinchuk.authenticationservice.dto.SignUpAuthRequest;
 import com.rabinchuk.authenticationservice.dto.SignUpRequest;
+import com.rabinchuk.authenticationservice.dto.SignUpUserRequest;
 import com.rabinchuk.authenticationservice.dto.UserInfo;
+import com.rabinchuk.authenticationservice.dto.UserResponse;
 import com.rabinchuk.authenticationservice.dto.ValidateTokenRequest;
 import com.rabinchuk.authenticationservice.exception.RefreshTokenException;
 import com.rabinchuk.authenticationservice.exception.UserAlreadyExistsException;
@@ -35,6 +39,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
     private final PasswordEncoder encoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenServiceImpl refreshTokenServiceImpl;
+    private final UserClient userClient;
 
     @Override
     public JwtAuthenticationResponse signIn(SignInRequest signInRequest) {
@@ -60,15 +65,38 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
     @Override
     public void signUp(SignUpRequest signUpRequest) {
+        SignUpUserRequest signUpUserRequest = SignUpUserRequest.builder()
+                .name(signUpRequest.name())
+                .surname(signUpRequest.surname())
+                .birthDate(signUpRequest.birthDate())
+                .email(signUpRequest.email())
+                .build();
+        SignUpAuthRequest signUpAuthRequest = SignUpAuthRequest.builder()
+                .email(signUpRequest.email())
+                .password(signUpRequest.password())
+                .build();
+
         if (userCredentialsRepository.findByEmail(signUpRequest.email()).isPresent()) {
             throw new UserAlreadyExistsException("Login is already taken");
         }
+
+        UserResponse userResponse = userClient.createUser(signUpUserRequest);
+
+        if (userResponse == null) {
+            throw new RuntimeException("Failed to create user in User service");
+        }
+
         UserCredentials userCredentials = UserCredentials.builder()
                 .email(signUpRequest.email())
                 .password(encoder.encode(signUpRequest.password()))
                 .roles(Set.of(RoleType.ROLE_USER))
                 .build();
-        userCredentialsRepository.save(userCredentials);
+        try {
+            userCredentialsRepository.save(userCredentials);
+        } catch (Exception ex) {
+            userClient.deleteUser(userResponse.id());
+            throw new RuntimeException("Couldn't save credentials. Rolling back.", ex);
+        }
     }
 
     @Override

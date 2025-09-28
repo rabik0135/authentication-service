@@ -1,11 +1,13 @@
 package com.rabinchuk.authenticationservice.service;
 
+import com.rabinchuk.authenticationservice.client.UserClient;
 import com.rabinchuk.authenticationservice.dto.CreateAdminRequest;
 import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponse;
 import com.rabinchuk.authenticationservice.dto.RefreshTokenRequest;
 import com.rabinchuk.authenticationservice.dto.SignInRequest;
 import com.rabinchuk.authenticationservice.dto.SignUpRequest;
 import com.rabinchuk.authenticationservice.dto.UserInfo;
+import com.rabinchuk.authenticationservice.dto.UserResponse;
 import com.rabinchuk.authenticationservice.dto.ValidateTokenRequest;
 import com.rabinchuk.authenticationservice.exception.RefreshTokenException;
 import com.rabinchuk.authenticationservice.exception.UserAlreadyExistsException;
@@ -29,6 +31,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.LocalDate;
 import java.util.Optional;
 import java.util.Set;
 
@@ -58,11 +61,13 @@ public class AuthenticationServiceImplTest {
     @Mock
     private RefreshTokenServiceImpl refreshTokenServiceImpl;
 
+    @Mock
+    private UserClient userClient;
+
     @InjectMocks
     private AuthenticationServiceImpl authenticationService;
 
     private UserCredentials userCredentials;
-    private AppUserDetails appUserDetails;
 
     @BeforeEach
     public void setUp() {
@@ -72,7 +77,7 @@ public class AuthenticationServiceImplTest {
                 .password("password")
                 .roles(Set.of(RoleType.ROLE_USER))
                 .build();
-        appUserDetails = new AppUserDetails(userCredentials);
+        AppUserDetails appUserDetails = new AppUserDetails(userCredentials);
     }
 
     @Test
@@ -106,9 +111,25 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Sign up with valid email")
     void whenSignUp_WithNewEmail_ShouldSaveUser() {
-        SignUpRequest signUpRequest = new SignUpRequest("newuser@example.com", "password123");
+        SignUpRequest signUpRequest = SignUpRequest.builder()
+                .email("test.example@example.com")
+                .password("password123")
+                .name("name")
+                .surname("surname")
+                .birthDate(LocalDate.of(1980, 1, 1))
+                .build();
+        UserResponse userResponse = UserResponse.builder()
+                .id(1L)
+                .name("name")
+                .surname("surname")
+                .birthDate(LocalDate.of(1980, 1, 1))
+                .email("test.example@example.com")
+                .build();
+
         when(userCredentialsRepository.findByEmail(signUpRequest.email())).thenReturn(Optional.empty());
         when(passwordEncoder.encode(signUpRequest.password())).thenReturn("encodedPassword123");
+        when(userClient.createUser(any()))
+                .thenReturn(userResponse);
 
         authenticationService.signUp(signUpRequest);
 
@@ -118,7 +139,13 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Sign up with invalid email")
     void whenSignUp_WithExistingEmail_ShouldThrowUserAlreadyExistsException() {
-        SignUpRequest signUpRequest = new SignUpRequest("test@example.com", "password123");
+        SignUpRequest signUpRequest = SignUpRequest.builder()
+                .email("test.example@example.com")
+                .password("password123")
+                .name("name")
+                .surname("surname")
+                .birthDate(LocalDate.of(1980, 1, 1))
+                .build();
         when(userCredentialsRepository.findByEmail(signUpRequest.email())).thenReturn(Optional.of(userCredentials));
 
         assertThrows(UserAlreadyExistsException.class, () -> {

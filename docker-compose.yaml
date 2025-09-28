@@ -5,16 +5,19 @@ networks:
 
 services:
   authentication-service:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: "authentication-service"
     restart: "no"
     ports:
       - 8082:8082
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-auth-db:5432/auth_db
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USERNAME}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_KEY: ${INTERNAL_KEY}
     depends_on:
       postgres-auth-db:
         condition: service_healthy
@@ -28,11 +31,11 @@ services:
     volumes:
       - postgres_auth_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_USER: ${POSTGRES_USERNAME}
+      POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: auth_db
     healthcheck:
-      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
       interval: 10s
       timeout: 5s
       start_period: 10s

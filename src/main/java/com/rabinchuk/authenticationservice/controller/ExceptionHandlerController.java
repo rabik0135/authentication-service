@@ -119,7 +119,7 @@ public class ExceptionHandlerController {
     public ResponseEntity<ErrorResponseDto> handleGlobalException(Exception ex, HttpServletRequest request) {
         ErrorResponseDto errorResponseDto = ErrorResponseDto.builder()
                 .path(request.getRequestURI())
-                .errorMessage("An unexpected error occurred " +  ex.getMessage())
+                .errorMessage("An unexpected error occurred " + ex.getMessage())
                 .statusCode(HttpStatus.INTERNAL_SERVER_ERROR.value())
                 .timestamp(LocalDateTime.now())
                 .build();

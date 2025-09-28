@@ -25,7 +25,7 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     private long refreshTokenExpiration;
 
     private final RefreshTokenRepository refreshTokenRepository;
-    private final UserCredentialsRepository  userCredentialsRepository;
+    private final UserCredentialsRepository userCredentialsRepository;
     private final JwtTokenProvider jwtTokenProvider;
 
     @Override

@@ -107,9 +107,7 @@ public class AuthenticationServiceImplTest {
         SignInRequestDto signInRequestDto = new SignInRequestDto("test@example.com", "wrongpassword");
         when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("Invalid credentials"));
 
-        assertThrows(BadCredentialsException.class, () -> {
-            authenticationService.signIn(signInRequestDto);
-        });
+        assertThrows(BadCredentialsException.class, () -> authenticationService.signIn(signInRequestDto));
     }
 
     @Test
@@ -159,9 +157,7 @@ public class AuthenticationServiceImplTest {
                 .build();
         when(userCredentialsRepository.existsByEmail(signUpRequestDto.email())).thenReturn(true);
 
-        assertThrows(UserAlreadyExistsException.class, () -> {
-            authenticationService.signUp(signUpRequestDto);
-        });
+        assertThrows(UserAlreadyExistsException.class, () -> authenticationService.signUp(signUpRequestDto));
         verify(userCredentialsRepository, never()).save(any());
     }
 
@@ -190,9 +186,7 @@ public class AuthenticationServiceImplTest {
         TokenRequestDto request = new TokenRequestDto("invalidRefreshToken");
         when(refreshTokenServiceImpl.findByToken("invalidRefreshToken")).thenReturn(Optional.empty());
 
-        assertThrows(RefreshTokenException.class, () -> {
-            authenticationService.refreshToken(request);
-        });
+        assertThrows(RefreshTokenException.class, () -> authenticationService.refreshToken(request));
     }
 
     @Test
@@ -215,9 +209,7 @@ public class AuthenticationServiceImplTest {
         TokenRequestDto request = new TokenRequestDto("invalidToken");
         when(jwtTokenProvider.validateToken("invalidToken")).thenReturn(false);
 
-        assertThrows(BadCredentialsException.class, () -> {
-            authenticationService.validateToken(request);
-        });
+        assertThrows(BadCredentialsException.class, () -> authenticationService.validateToken(request));
     }
 
     @Test
@@ -244,9 +236,7 @@ public class AuthenticationServiceImplTest {
         CreateAdminRequestDto request = new CreateAdminRequestDto("admin@example.com", "adminpass");
         when(userCredentialsRepository.findByEmail(request.email())).thenReturn(Optional.of(new UserCredentials()));
 
-        assertThrows(UserAlreadyExistsException.class, () -> {
-            authenticationService.createAdmin(request);
-        });
+        assertThrows(UserAlreadyExistsException.class, () -> authenticationService.createAdmin(request));
         verify(userCredentialsRepository, never()).save(any());
     }
 

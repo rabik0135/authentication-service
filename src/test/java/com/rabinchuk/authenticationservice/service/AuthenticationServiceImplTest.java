@@ -1,16 +1,17 @@
 package com.rabinchuk.authenticationservice.service;
 
 import com.rabinchuk.authenticationservice.client.UserClient;
-import com.rabinchuk.authenticationservice.dto.CreateAdminRequest;
-import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponse;
-import com.rabinchuk.authenticationservice.dto.RefreshTokenRequest;
-import com.rabinchuk.authenticationservice.dto.SignInRequest;
-import com.rabinchuk.authenticationservice.dto.SignUpRequest;
-import com.rabinchuk.authenticationservice.dto.UserInfo;
-import com.rabinchuk.authenticationservice.dto.UserResponse;
-import com.rabinchuk.authenticationservice.dto.ValidateTokenRequest;
+import com.rabinchuk.authenticationservice.dto.CreateAdminRequestDto;
+import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponseDto;
+import com.rabinchuk.authenticationservice.dto.SignInRequestDto;
+import com.rabinchuk.authenticationservice.dto.SignUpRequestDto;
+import com.rabinchuk.authenticationservice.dto.SignUpUserRequestDto;
+import com.rabinchuk.authenticationservice.dto.TokenRequestDto;
+import com.rabinchuk.authenticationservice.dto.UserInfoDto;
+import com.rabinchuk.authenticationservice.dto.UserResponseDto;
 import com.rabinchuk.authenticationservice.exception.RefreshTokenException;
 import com.rabinchuk.authenticationservice.exception.UserAlreadyExistsException;
+import com.rabinchuk.authenticationservice.mapper.UserMapper;
 import com.rabinchuk.authenticationservice.model.RefreshToken;
 import com.rabinchuk.authenticationservice.model.RoleType;
 import com.rabinchuk.authenticationservice.model.UserCredentials;
@@ -64,6 +65,9 @@ public class AuthenticationServiceImplTest {
     @Mock
     private UserClient userClient;
 
+    @Mock
+    private UserMapper userMapper;
+
     @InjectMocks
     private AuthenticationServiceImpl authenticationService;
 
@@ -83,14 +87,14 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Sign in with valid credentials")
     void whenSignIn_WithValidCredentials_ShouldReturnTokens() {
-        SignInRequest signInRequest = new SignInRequest("test@example.com", "password");
+        SignInRequestDto signInRequestDto = new SignInRequestDto("test@example.com", "password");
         RefreshToken refreshToken = RefreshToken.builder().token("refreshToken").build();
 
-        when(userCredentialsRepository.findByEmail(signInRequest.email())).thenReturn(Optional.of(userCredentials));
+        when(userCredentialsRepository.findByEmail(signInRequestDto.email())).thenReturn(Optional.of(userCredentials));
         when(jwtTokenProvider.generateAccessToken(any(AppUserDetails.class))).thenReturn("accessToken");
-        when(refreshTokenServiceImpl.createRefreshToken(signInRequest.email())).thenReturn(refreshToken);
+        when(refreshTokenServiceImpl.createRefreshToken(signInRequestDto.email())).thenReturn(refreshToken);
 
-        JwtAuthenticationResponse response = authenticationService.signIn(signInRequest);
+        JwtAuthenticationResponseDto response = authenticationService.signIn(signInRequestDto);
 
         assertThat(response.accessToken()).isEqualTo("accessToken");
         assertThat(response.refreshToken()).isEqualTo("refreshToken");
@@ -100,25 +104,31 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Sign in with invalid credentials")
     void whenSignIn_WithInvalidCredentials_ShouldThrowBadCredentialsException() {
-        SignInRequest signInRequest = new SignInRequest("test@example.com", "wrongpassword");
+        SignInRequestDto signInRequestDto = new SignInRequestDto("test@example.com", "wrongpassword");
         when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("Invalid credentials"));
 
         assertThrows(BadCredentialsException.class, () -> {
-            authenticationService.signIn(signInRequest);
+            authenticationService.signIn(signInRequestDto);
         });
     }
 
     @Test
     @DisplayName("Sign up with valid email")
     void whenSignUp_WithNewEmail_ShouldSaveUser() {
-        SignUpRequest signUpRequest = SignUpRequest.builder()
+        SignUpRequestDto signUpRequestDto = SignUpRequestDto.builder()
                 .email("test.example@example.com")
                 .password("password123")
                 .name("name")
                 .surname("surname")
                 .birthDate(LocalDate.of(1980, 1, 1))
                 .build();
-        UserResponse userResponse = UserResponse.builder()
+        SignUpUserRequestDto signUpUserRequestDto = SignUpUserRequestDto.builder()
+                .email("test.example@example.com")
+                .name("name")
+                .surname("surname")
+                .birthDate(LocalDate.of(1980, 1, 1))
+                .build();
+        UserResponseDto userResponseDto = UserResponseDto.builder()
                 .id(1L)
                 .name("name")
                 .surname("surname")
@@ -126,12 +136,13 @@ public class AuthenticationServiceImplTest {
                 .email("test.example@example.com")
                 .build();
 
-        when(userCredentialsRepository.findByEmail(signUpRequest.email())).thenReturn(Optional.empty());
-        when(passwordEncoder.encode(signUpRequest.password())).thenReturn("encodedPassword123");
-        when(userClient.createUser(any()))
-                .thenReturn(userResponse);
+        when(userCredentialsRepository.existsByEmail(signUpRequestDto.email())).thenReturn(false);
+        when(userMapper.toSignUpUserRequest(any(SignUpRequestDto.class))).thenReturn(signUpUserRequestDto);
+        when(passwordEncoder.encode(signUpRequestDto.password())).thenReturn("encodedPassword123");
+        when(userClient.createUser(any())).thenReturn(userResponseDto);
+        when(userMapper.toUserCredentials(signUpRequestDto)).thenReturn(userCredentials);
 
-        authenticationService.signUp(signUpRequest);
+        authenticationService.signUp(signUpRequestDto);
 
         verify(userCredentialsRepository, times(1)).save(any(UserCredentials.class));
     }
@@ -139,17 +150,17 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Sign up with invalid email")
     void whenSignUp_WithExistingEmail_ShouldThrowUserAlreadyExistsException() {
-        SignUpRequest signUpRequest = SignUpRequest.builder()
+        SignUpRequestDto signUpRequestDto = SignUpRequestDto.builder()
                 .email("test.example@example.com")
                 .password("password123")
                 .name("name")
                 .surname("surname")
                 .birthDate(LocalDate.of(1980, 1, 1))
                 .build();
-        when(userCredentialsRepository.findByEmail(signUpRequest.email())).thenReturn(Optional.of(userCredentials));
+        when(userCredentialsRepository.existsByEmail(signUpRequestDto.email())).thenReturn(true);
 
         assertThrows(UserAlreadyExistsException.class, () -> {
-            authenticationService.signUp(signUpRequest);
+            authenticationService.signUp(signUpRequestDto);
         });
         verify(userCredentialsRepository, never()).save(any());
     }
@@ -157,7 +168,7 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Refresh token with valid token")
     void whenRefreshToken_WithValidToken_ShouldReturnNewAccessToken() {
-        RefreshTokenRequest request = new RefreshTokenRequest("validRefreshToken");
+        TokenRequestDto request = new TokenRequestDto("validRefreshToken");
         RefreshToken refreshToken = RefreshToken.builder()
                 .token("validRefreshToken")
                 .userCredentials(userCredentials)
@@ -167,7 +178,7 @@ public class AuthenticationServiceImplTest {
         when(refreshTokenServiceImpl.verifyExpiration(refreshToken)).thenReturn(refreshToken);
         when(jwtTokenProvider.generateAccessToken(any(AppUserDetails.class))).thenReturn("newAccessToken");
 
-        JwtAuthenticationResponse response = authenticationService.refreshToken(request);
+        JwtAuthenticationResponseDto response = authenticationService.refreshToken(request);
 
         assertThat(response.accessToken()).isEqualTo("newAccessToken");
         assertThat(response.refreshToken()).isEqualTo("validRefreshToken");
@@ -176,7 +187,7 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Refresh token with invalid token")
     void whenRefreshToken_WithInvalidToken_ShouldThrowException() {
-        RefreshTokenRequest request = new RefreshTokenRequest("invalidRefreshToken");
+        TokenRequestDto request = new TokenRequestDto("invalidRefreshToken");
         when(refreshTokenServiceImpl.findByToken("invalidRefreshToken")).thenReturn(Optional.empty());
 
         assertThrows(RefreshTokenException.class, () -> {
@@ -187,21 +198,21 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Validate token with valid token")
     void whenValidateToken_WithValidToken_ShouldReturnUserInfo() {
-        ValidateTokenRequest request = new ValidateTokenRequest("validToken");
+        TokenRequestDto request = new TokenRequestDto("validToken");
         when(jwtTokenProvider.validateToken("validToken")).thenReturn(true);
         when(jwtTokenProvider.getEmailFromToken("validToken")).thenReturn("test@example.com");
         when(jwtTokenProvider.getRolesFromToken("validToken")).thenReturn(Set.of(RoleType.ROLE_USER));
 
-        UserInfo userInfo = authenticationService.validateToken(request);
+        UserInfoDto userInfoDto = authenticationService.validateToken(request);
 
-        assertThat(userInfo.email()).isEqualTo("test@example.com");
-        assertThat(userInfo.roles()).isEqualTo(Set.of(RoleType.ROLE_USER));
+        assertThat(userInfoDto.email()).isEqualTo("test@example.com");
+        assertThat(userInfoDto.roles()).isEqualTo(Set.of(RoleType.ROLE_USER));
     }
 
     @Test
     @DisplayName("Validate token with invalid token")
     void whenValidateToken_WithInvalidToken_ShouldThrowException() {
-        ValidateTokenRequest request = new ValidateTokenRequest("invalidToken");
+        TokenRequestDto request = new TokenRequestDto("invalidToken");
         when(jwtTokenProvider.validateToken("invalidToken")).thenReturn(false);
 
         assertThrows(BadCredentialsException.class, () -> {
@@ -212,7 +223,7 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Create admin with valid email")
     void whenCreateAdmin_WithNewEmail_ShouldSaveAdminUser() {
-        CreateAdminRequest request = new CreateAdminRequest("admin@example.com", "adminpass");
+        CreateAdminRequestDto request = new CreateAdminRequestDto("admin@example.com", "adminpass");
         when(userCredentialsRepository.findByEmail(request.email())).thenReturn(Optional.empty());
         when(passwordEncoder.encode(request.password())).thenReturn("encodedAdminPass");
 
@@ -230,7 +241,7 @@ public class AuthenticationServiceImplTest {
     @Test
     @DisplayName("Create admin with invalid email")
     void whenCreateAdmin_WithExistingEmail_ShouldThrowException() {
-        CreateAdminRequest request = new CreateAdminRequest("admin@example.com", "adminpass");
+        CreateAdminRequestDto request = new CreateAdminRequestDto("admin@example.com", "adminpass");
         when(userCredentialsRepository.findByEmail(request.email())).thenReturn(Optional.of(new UserCredentials()));
 
         assertThrows(UserAlreadyExistsException.class, () -> {

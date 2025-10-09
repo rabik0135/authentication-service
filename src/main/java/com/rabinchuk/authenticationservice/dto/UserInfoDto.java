@@ -6,8 +6,9 @@ import lombok.Builder;
 import java.util.Set;
 
 @Builder
-public record UserInfo(
+public record UserInfoDto(
         String email,
+
         Set<RoleType> roles
 ) {
 }

@@ -1,7 +1,7 @@
 package com.rabinchuk.authenticationservice.client;
 
-import com.rabinchuk.authenticationservice.dto.SignUpUserRequest;
-import com.rabinchuk.authenticationservice.dto.UserResponse;
+import com.rabinchuk.authenticationservice.dto.SignUpUserRequestDto;
+import com.rabinchuk.authenticationservice.dto.UserResponseDto;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 public interface UserClient {
 
     @PostMapping("/api/users")
-    UserResponse createUser(@RequestBody SignUpUserRequest signUpUserRequest);
+    UserResponseDto createUser(@RequestBody SignUpUserRequestDto signUpUserRequestDto);
 
     @DeleteMapping("/api/users/{userId}")
     void deleteUser(@PathVariable Long userId);

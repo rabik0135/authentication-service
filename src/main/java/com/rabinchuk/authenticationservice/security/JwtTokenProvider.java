@@ -51,7 +51,7 @@ public class JwtTokenProvider {
     private String generateToken(AppUserDetails userDetails, long tokenExpiration) {
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .collect(Collectors.toList());
+                .toList();
 
         Claims claims = Jwts.claims()
                 .subject(userDetails.getUsername())

@@ -1,18 +1,17 @@
 package com.rabinchuk.authenticationservice.service.impl;
 
 import com.rabinchuk.authenticationservice.client.UserClient;
-import com.rabinchuk.authenticationservice.dto.CreateAdminRequest;
-import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponse;
-import com.rabinchuk.authenticationservice.dto.RefreshTokenRequest;
-import com.rabinchuk.authenticationservice.dto.SignInRequest;
-import com.rabinchuk.authenticationservice.dto.SignUpAuthRequest;
-import com.rabinchuk.authenticationservice.dto.SignUpRequest;
-import com.rabinchuk.authenticationservice.dto.SignUpUserRequest;
-import com.rabinchuk.authenticationservice.dto.UserInfo;
-import com.rabinchuk.authenticationservice.dto.UserResponse;
-import com.rabinchuk.authenticationservice.dto.ValidateTokenRequest;
+import com.rabinchuk.authenticationservice.dto.CreateAdminRequestDto;
+import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponseDto;
+import com.rabinchuk.authenticationservice.dto.SignInRequestDto;
+import com.rabinchuk.authenticationservice.dto.SignUpRequestDto;
+import com.rabinchuk.authenticationservice.dto.SignUpUserRequestDto;
+import com.rabinchuk.authenticationservice.dto.TokenRequestDto;
+import com.rabinchuk.authenticationservice.dto.UserInfoDto;
+import com.rabinchuk.authenticationservice.dto.UserResponseDto;
 import com.rabinchuk.authenticationservice.exception.RefreshTokenException;
 import com.rabinchuk.authenticationservice.exception.UserAlreadyExistsException;
+import com.rabinchuk.authenticationservice.mapper.UserMapper;
 import com.rabinchuk.authenticationservice.model.RefreshToken;
 import com.rabinchuk.authenticationservice.model.RoleType;
 import com.rabinchuk.authenticationservice.model.UserCredentials;
@@ -27,6 +26,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Set;
 
@@ -40,102 +40,93 @@ public class AuthenticationServiceImpl implements AuthenticationService {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenServiceImpl refreshTokenServiceImpl;
     private final UserClient userClient;
+    private final UserMapper userMapper;
 
     @Override
-    public JwtAuthenticationResponse signIn(SignInRequest signInRequest) {
+    @Transactional
+    public JwtAuthenticationResponseDto signIn(SignInRequestDto signInRequestDto) {
         try {
             authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(signInRequest.email(), signInRequest.password())
+                    new UsernamePasswordAuthenticationToken(signInRequestDto.email(), signInRequestDto.password())
             );
         } catch (BadCredentialsException e) {
             throw new BadCredentialsException("Invalid email or password");
         }
 
-        UserCredentials userCredentials = userCredentialsRepository.findByEmail(signInRequest.email())
+        UserCredentials userCredentials = userCredentialsRepository.findByEmail(signInRequestDto.email())
                 .orElseThrow(
-                        () -> new UsernameNotFoundException("User not found with email: " + signInRequest.email())
+                        () -> new UsernameNotFoundException("User not found with email: " + signInRequestDto.email())
                 );
 
         AppUserDetails appUserDetails = new AppUserDetails(userCredentials);
         String accessToken = jwtTokenProvider.generateAccessToken(appUserDetails);
-        RefreshToken refreshToken = refreshTokenServiceImpl.createRefreshToken(signInRequest.email());
+        RefreshToken refreshToken = refreshTokenServiceImpl.createRefreshToken(signInRequestDto.email());
 
-        return new JwtAuthenticationResponse(accessToken, refreshToken.getToken());
+        return new JwtAuthenticationResponseDto(accessToken, refreshToken.getToken());
     }
 
     @Override
-    public void signUp(SignUpRequest signUpRequest) {
-        SignUpUserRequest signUpUserRequest = SignUpUserRequest.builder()
-                .name(signUpRequest.name())
-                .surname(signUpRequest.surname())
-                .birthDate(signUpRequest.birthDate())
-                .email(signUpRequest.email())
-                .build();
-        SignUpAuthRequest signUpAuthRequest = SignUpAuthRequest.builder()
-                .email(signUpRequest.email())
-                .password(signUpRequest.password())
-                .build();
-
-        if (userCredentialsRepository.findByEmail(signUpRequest.email()).isPresent()) {
+    @Transactional
+    public void signUp(SignUpRequestDto signUpRequestDto) {
+        if (userCredentialsRepository.existsByEmail(signUpRequestDto.email())) {
             throw new UserAlreadyExistsException("Login is already taken");
         }
 
-        UserResponse userResponse = userClient.createUser(signUpUserRequest);
+        SignUpUserRequestDto signUpUserRequestDto = userMapper.toSignUpUserRequest(signUpRequestDto);
+        UserResponseDto userResponseDto = userClient.createUser(signUpUserRequestDto);
 
-        if (userResponse == null) {
+        if (userResponseDto == null) {
             throw new RuntimeException("Failed to create user in User service");
         }
 
-        UserCredentials userCredentials = UserCredentials.builder()
-                .email(signUpRequest.email())
-                .password(encoder.encode(signUpRequest.password()))
-                .roles(Set.of(RoleType.ROLE_USER))
-                .build();
+        UserCredentials userCredentials = userMapper.toUserCredentials(signUpRequestDto);
+        userCredentials.setPassword(encoder.encode(signUpRequestDto.password()));
+
         try {
             userCredentialsRepository.save(userCredentials);
         } catch (Exception ex) {
-            userClient.deleteUser(userResponse.id());
+            userClient.deleteUser(userResponseDto.id());
             throw new RuntimeException("Couldn't save credentials. Rolling back.", ex);
         }
     }
 
     @Override
-    public JwtAuthenticationResponse refreshToken(RefreshTokenRequest refreshTokenRequest) {
-        return refreshTokenServiceImpl.findByToken(refreshTokenRequest.refreshToken())
+    public JwtAuthenticationResponseDto refreshToken(TokenRequestDto tokenRequestDto) {
+        return refreshTokenServiceImpl.findByToken(tokenRequestDto.token())
                 .map(refreshTokenServiceImpl::verifyExpiration)
                 .map(RefreshToken::getUserCredentials)
                 .map(userCredentials -> {
                     AppUserDetails appUserDetails = new AppUserDetails(userCredentials);
                     String newAccessToken = jwtTokenProvider.generateAccessToken(appUserDetails);
 
-                    return new JwtAuthenticationResponse(newAccessToken, refreshTokenRequest.refreshToken());
+                    return new JwtAuthenticationResponseDto(newAccessToken, tokenRequestDto.token());
                 })
                 .orElseThrow(
-                        () -> new RefreshTokenException(refreshTokenRequest.refreshToken(), "Refresh token is not in database or expired")
+                        () -> new RefreshTokenException(tokenRequestDto.token(), "Refresh token is not in database or expired")
                 );
     }
 
     @Override
-    public UserInfo validateToken(ValidateTokenRequest validateTokenRequest) {
-        if (!jwtTokenProvider.validateToken(validateTokenRequest.token())) {
+    public UserInfoDto validateToken(TokenRequestDto tokenRequestDto) {
+        if (!jwtTokenProvider.validateToken(tokenRequestDto.token())) {
             throw new BadCredentialsException("Invalid token");
         }
 
-        String email = jwtTokenProvider.getEmailFromToken(validateTokenRequest.token());
-        Set<RoleType> roles = jwtTokenProvider.getRolesFromToken(validateTokenRequest.token());
+        String email = jwtTokenProvider.getEmailFromToken(tokenRequestDto.token());
+        Set<RoleType> roles = jwtTokenProvider.getRolesFromToken(tokenRequestDto.token());
 
-        return new UserInfo(email, roles);
+        return new UserInfoDto(email, roles);
     }
 
     @Override
-    public void createAdmin(CreateAdminRequest createAdminRequest) {
-        if (userCredentialsRepository.findByEmail(createAdminRequest.email()).isPresent()) {
+    public void createAdmin(CreateAdminRequestDto createAdminRequestDto) {
+        if (userCredentialsRepository.findByEmail(createAdminRequestDto.email()).isPresent()) {
             throw new UserAlreadyExistsException("Email is already taken");
         }
 
         UserCredentials adminCredentials = UserCredentials.builder()
-                .email(createAdminRequest.email())
-                .password(encoder.encode(createAdminRequest.password()))
+                .email(createAdminRequestDto.email())
+                .password(encoder.encode(createAdminRequestDto.password()))
                 .roles(Set.of(RoleType.ROLE_ADMIN))
                 .build();
 

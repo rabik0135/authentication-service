@@ -6,4 +6,5 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
     <include file="db/changelog/initial.xml"/>
     <include file="db/changelog/2025/09/create-refresh-tokens-table.xml"/>
+    <include file="db/changelog/2025/09/create-admin.xml"/>
 </databaseChangeLog>

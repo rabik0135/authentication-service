@@ -1,25 +1,24 @@
 package com.rabinchuk.authenticationservice.service;
 
-import com.rabinchuk.authenticationservice.dto.CreateAdminRequest;
-import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponse;
-import com.rabinchuk.authenticationservice.dto.RefreshTokenRequest;
-import com.rabinchuk.authenticationservice.dto.SignInRequest;
-import com.rabinchuk.authenticationservice.dto.SignUpRequest;
-import com.rabinchuk.authenticationservice.dto.UserInfo;
-import com.rabinchuk.authenticationservice.dto.ValidateTokenRequest;
+import com.rabinchuk.authenticationservice.dto.CreateAdminRequestDto;
+import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponseDto;
+import com.rabinchuk.authenticationservice.dto.SignInRequestDto;
+import com.rabinchuk.authenticationservice.dto.SignUpRequestDto;
+import com.rabinchuk.authenticationservice.dto.TokenRequestDto;
+import com.rabinchuk.authenticationservice.dto.UserInfoDto;
 import org.springframework.stereotype.Service;
 
 @Service
 public interface AuthenticationService {
 
-    JwtAuthenticationResponse signIn(SignInRequest signInRequest);
+    JwtAuthenticationResponseDto signIn(SignInRequestDto signInRequestDto);
 
-    JwtAuthenticationResponse refreshToken(RefreshTokenRequest refreshTokenRequest);
+    JwtAuthenticationResponseDto refreshToken(TokenRequestDto tokenRequestDto);
 
-    void signUp(SignUpRequest signUpRequest);
+    void signUp(SignUpRequestDto signUpRequestDto);
 
-    UserInfo validateToken(ValidateTokenRequest validateTokenRequest);
+    UserInfoDto validateToken(TokenRequestDto tokenRequestDto);
 
-    void createAdmin(CreateAdminRequest createAdminRequest);
+    void createAdmin(CreateAdminRequestDto createAdminRequestDto);
 
 }

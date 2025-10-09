@@ -3,12 +3,11 @@ package com.rabinchuk.authenticationservice.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
-import com.rabinchuk.authenticationservice.dto.CreateAdminRequest;
-import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponse;
-import com.rabinchuk.authenticationservice.dto.RefreshTokenRequest;
-import com.rabinchuk.authenticationservice.dto.SignInRequest;
-import com.rabinchuk.authenticationservice.dto.SignUpRequest;
-import com.rabinchuk.authenticationservice.dto.ValidateTokenRequest;
+import com.rabinchuk.authenticationservice.dto.CreateAdminRequestDto;
+import com.rabinchuk.authenticationservice.dto.JwtAuthenticationResponseDto;
+import com.rabinchuk.authenticationservice.dto.SignInRequestDto;
+import com.rabinchuk.authenticationservice.dto.SignUpRequestDto;
+import com.rabinchuk.authenticationservice.dto.TokenRequestDto;
 import com.rabinchuk.authenticationservice.model.RoleType;
 import com.rabinchuk.authenticationservice.model.UserCredentials;
 import com.rabinchuk.authenticationservice.repository.RefreshTokenRepository;
@@ -22,6 +21,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -125,11 +125,11 @@ public class AuthControllerIntegrationTest {
                         .content(objectMapper.writeValueAsString(createSignUpRequest())))
                 .andExpect(status().isCreated());
 
-        SignInRequest signInRequest = new SignInRequest("test.example@example.com", "password123");
+        SignInRequestDto signInRequestDto = new SignInRequestDto("test.example@example.com", "password123");
 
         mockMvc.perform(post("/api/auth/signIn")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(signInRequest)))
+                        .content(objectMapper.writeValueAsString(signInRequestDto)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isString())
                 .andExpect(jsonPath("$.refreshToken").isString());
@@ -145,24 +145,24 @@ public class AuthControllerIntegrationTest {
                         .content(objectMapper.writeValueAsString(createSignUpRequest())))
                 .andExpect(status().isCreated());
 
-        SignInRequest signInRequest = new SignInRequest("test.example@example.com", "wrong-password");
+        SignInRequestDto signInRequestDto = new SignInRequestDto("test.example@example.com", "wrong-password");
 
         mockMvc.perform(post("/api/auth/signIn")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(signInRequest)))
+                        .content(objectMapper.writeValueAsString(signInRequestDto)))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     @DisplayName("Refresh token successful")
     public void refreshToken_whenTokenIsValid_shouldReturnNewAccessToken() throws Exception {
-        JwtAuthenticationResponse signInResponse = signIpAndSignIn();
+        JwtAuthenticationResponseDto signInResponse = signIpAndSignIn();
         String refreshToken = signInResponse.refreshToken();
         String oldAccessToken = signInResponse.accessToken();
 
         sleep(1000);
 
-        RefreshTokenRequest refreshRequest = new RefreshTokenRequest(refreshToken);
+        TokenRequestDto refreshRequest = new TokenRequestDto(refreshToken);
 
         mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -177,9 +177,9 @@ public class AuthControllerIntegrationTest {
     @Test
     @DisplayName("Validate token successful")
     public void validateToken_whenTokenIsValid_shouldReturnUserInfoAnd200() throws Exception {
-        JwtAuthenticationResponse signInResponse = signIpAndSignIn();
+        JwtAuthenticationResponseDto signInResponse = signIpAndSignIn();
 
-        ValidateTokenRequest validateRequest = new ValidateTokenRequest(signInResponse.accessToken());
+        TokenRequestDto validateRequest = new TokenRequestDto(signInResponse.accessToken());
 
         mockMvc.perform(post("/api/auth/validate")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -191,8 +191,9 @@ public class AuthControllerIntegrationTest {
 
     @Test
     @DisplayName("Create admin successful")
+    @WithMockUser(roles = "ADMIN")
     public void createAdmin_whenRequestIsValid_shouldCreateAdminUserAndReturn201() throws Exception {
-        CreateAdminRequest adminRequest = new CreateAdminRequest("theadmin@example.com", "supersecretpass");
+        CreateAdminRequestDto adminRequest = new CreateAdminRequestDto("theadmin@example.com", "supersecretpass");
 
         mockMvc.perform(post("/api/auth/create-admin")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -223,8 +224,8 @@ public class AuthControllerIntegrationTest {
         );
     }
 
-    private SignUpRequest createSignUpRequest() {
-        return SignUpRequest.builder()
+    private SignUpRequestDto createSignUpRequest() {
+        return SignUpRequestDto.builder()
                 .email("test.example@example.com")
                 .password("password123")
                 .name("name")
@@ -233,20 +234,20 @@ public class AuthControllerIntegrationTest {
                 .build();
     }
 
-    private JwtAuthenticationResponse signIpAndSignIn() throws Exception {
+    private JwtAuthenticationResponseDto signIpAndSignIn() throws Exception {
         stubUserClient();
         mockMvc.perform(post("/api/auth/signUp")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(createSignUpRequest())))
                 .andExpect(status().isCreated());
 
-        SignInRequest signInRequest = new SignInRequest("test.example@example.com", "password123");
+        SignInRequestDto signInRequestDto = new SignInRequestDto("test.example@example.com", "password123");
         MvcResult signInResult = mockMvc.perform(post("/api/auth/signIn")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(signInRequest)))
+                        .content(objectMapper.writeValueAsString(signInRequestDto)))
                 .andReturn();
 
-        return objectMapper.readValue(signInResult.getResponse().getContentAsString(), JwtAuthenticationResponse.class);
+        return objectMapper.readValue(signInResult.getResponse().getContentAsString(), JwtAuthenticationResponseDto.class);
     }
 
 }

@@ -10,7 +10,7 @@ import lombok.Builder;
 import java.time.LocalDate;
 
 @Builder
-public record SignUpRequest(
+public record SignUpRequestDto(
         @NotBlank(message = "Email must not be empty")
         @Email(message = "Email should be valid")
         @Size(min = 3, max = 100, message = "Email must be between 3 and 50 characters")

@@ -3,6 +3,7 @@ package com.rabinchuk.authenticationservice.controller;
 import com.rabinchuk.authenticationservice.dto.ErrorResponseDto;
 import com.rabinchuk.authenticationservice.exception.RefreshTokenException;
 import com.rabinchuk.authenticationservice.exception.UserAlreadyExistsException;
+import feign.FeignException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -111,6 +112,20 @@ public class ExceptionHandlerController {
                 .build();
 
         return new ResponseEntity<>(errorResponseDto, HttpStatus.FORBIDDEN);
+    }
+
+    @ExceptionHandler({
+            FeignException.class
+    })
+    public ResponseEntity<ErrorResponseDto> handleFeignException(FeignException ex, HttpServletRequest request) {
+        ErrorResponseDto errorResponseDto = ErrorResponseDto.builder()
+                .path(request.getRequestURI())
+                .errorMessage("An error occurred while communicating with user-serivce")
+                .statusCode(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .timestamp(LocalDateTime.now())
+                .build();
+
+        return new ResponseEntity<>(errorResponseDto, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     @ExceptionHandler({

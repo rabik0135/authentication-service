@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="1-create-admin" author="rabinchuk">
+        <insert tableName="user_credentials">
+            <column name="email" value="admin@example.com"/>
+            <column name="password" value="$2a$10$HbJMv5NkuER1GDo3FyUQF.MxmjX16WaALmqPKl0eOgBajNQMP8sPm"/>
+        </insert>
+
+        <sql>
+            INSERT INTO user_roles (user_id, roles) VALUES
+            ((SELECT id FROM user_credentials WHERE email = 'admin@example.com'), 'ROLE_ADMIN')
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>
